@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Creates an RDS MySQL 5.7 instance
+Parameters:
+  Subnets:
+    ConstraintDescription: Must be list of existing subnet Ids
+    Description: >-
+      At least two existing Subnets in separate Availability Zones your Virtual
+      Private Cloud (VPC)
+    Type: 'List<AWS::EC2::Subnet::Id>'
+  DBSecurityGroups:
+    Description: Comma separated list of security groups ids
+    Type: 'List<AWS::EC2::SecurityGroup::Id>'
+  DBBackupRetentionPeriod:
+    ConstraintDescription: Database backup retention period must be between 1 and 35 days
+    Default: '7'
+    Description: The number of days for which automatic DB snapshots are retained
+    MaxValue: '35'
+    MinValue: '1'
+    Type: Number
+  DBPreferredBackupWindow:
+    AllowedPattern: '^(|([0-1][0-9]|2[0-3]):[0-5][0-9]-([0-1][0-9]|2[0-3]):[0-5][0-9])$'
+    ConstraintDescription: 'Preferred backup window must be left blank or in the form of HH:MM-HH:MM'
+    Default: ''
+    Description: (Optional) Preferred backup window
+    Type: String
+  DBInstanceClass:
+    Description: DB Instance Class
+    Type: String
+    AllowedValues:
+      - db.t2.micro
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+      - db.t3.large
+      - db.t3.xlarge
+      - db.t3.2xlarge
+      - db.m5.large
+      - db.m5.xlarge
+      - db.m5.2xlarge
+      - db.m5.4xlarge
+      - db.m5.12xlarge
+      - db.m5.24xlarge
+    Default: db.t2.micro
+    ConstraintDescription: must select a valid database instance type.
+  DBUser:
+    Description: DB admin account username
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    Default: root
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  DBAutoMinorVersionUpgrade:
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'true'
+    Description: Select true/false to setup Auto Minor Version upgrade
+    Type: String
+  DBName:
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    Default: QuickstartAuroraDB
+    Description: Name of Aurora DB for WordPress Stack
+    MaxLength: '64'
+    MinLength: '5'
+    Type: String
+  DBMasterUserPassword:
+    AllowedPattern: '(?=\S)[^@/"\r\n\t\f\s]*'
+    ConstraintDescription: 'Min 8 alphanumeric. Cannot contain white space, @, /, "'
+    Description: The database admin account password (username is 'root').
+    MaxLength: '41'
+    MinLength: '8'
+    NoEcho: 'True'
+    Type: String
+  DBMultiAZ:
+    Description: whether this RDS DB is multi-AZ or not
+    Type: String
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'false'
+  DBStorageEncrypted:
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'false'
+    Description: Select true/false to enable storage encryption in the database instances
+    Type: String
+Conditions:
+  EnableStorageEncryption: !Equals 
+    - !Ref DBStorageEncrypted
+    - 'true'
+Resources:
+  MonitoringIAMRole: 
+    Type: AWS::IAM::Role    
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "monitoring.rds.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+  DBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: RDS Subnet Group
+      SubnetIds: !Ref Subnets
+      Tags:
+        - Key: Name
+          Value: RDS-DBSubnets
+  DB:
+    Type: 'AWS::RDS::DBInstance'
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      MultiAZ: !Ref DBMultiAZ
+      AllocatedStorage: '20'
+      BackupRetentionPeriod: !Ref DBBackupRetentionPeriod
+      AutoMinorVersionUpgrade: !Ref DBAutoMinorVersionUpgrade
+      CopyTagsToSnapshot: True
+      DBInstanceClass: !Ref DBInstanceClass
+      Engine: mysql
+      EngineVersion: '5.6'
+      StorageType: gp2
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBMasterUserPassword
+      VPCSecurityGroups: !Ref DBSecurityGroups
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PreferredBackupWindow: !Ref DBPreferredBackupWindow
+      MonitoringRoleArn: !GetAtt MonitoringIAMRole.Arn
+      MonitoringInterval: 60
+      StorageEncrypted: !If 
+        - EnableStorageEncryption
+        - 'true'
+        - !Ref 'AWS::NoValue'
+      Tags:
+        - Key: Name
+          Value: MySQLDB
+Outputs:
+  RDSEndPointAddress:
+    Description: DB Host Address
+    Value: !GetAtt 
+      - DB
+      - Endpoint.Address
